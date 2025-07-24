@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Worklogs Report</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Mantener el estilo existente */
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+            <a href="#" class="brand-logo">
+                <img src="{{ url_for('static', filename='images/logo-encuentra-oscuro.png') }}" alt="Logo">
+            </a>
+            <ul id="nav-mobile" class="right hide-on-med-and-down">
+                <li><a href="{{ url_for('index2') }}">Horas Sprint</a></li>
+                <li><a href="#">Otra Opción</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>Generate Worklogs Report</h1>
+        <form method="POST" class="row" onsubmit="showLoading()">
+            <div class="col s12 m6">
+                <label for="start_date">Start Date</label>
+                <input type="date" name="start_date" id="start_date" required>
+            </div>
+            <div class="col s12 m6">
+                <label for="end_date">End Date</label>
+                <input type="date" name="end_date" id="end_date" required>
+            </div>
+
+            <div class="col s12">
+                <button type="submit" class="btn waves-effect waves-light">Load Data</button>
+            </div>
+        </form>
+
+        {% if worklog_details %}              
+        <div class="col s12">
+            <form method="POST" action="{{ url_for('export_to_excel') }}">
+                <input type="hidden" name="sprint" value="{{ selected_sprint }}">
+                <button type="submit" class="btn waves-effect waves-light">Download Excel</button>
+            </form>
+            <form method="POST" action="{{ url_for('export_to_csv') }}">
+                <input type="hidden" name="sprint" value="{{ selected_sprint }}">
+                <button type="submit" class="btn waves-effect waves-light">Download CSV</button>
+            </form>
+        </div>
+
+        <h2>Worklogs</h2>
+        <div id="filters-container">
+            <div id="author-filter-container">
+                <label for="author-filter">Filter by Author:</label>
+                <select id="author-filter" class="browser-default">
+                    <option value="" selected>All Authors</option>
+                    {% for author in authors %}
+                        <option value="{{ author }}">{{ author }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="type-filter-container">
+                <label for="type-filter">Filter by Issue Type:</label>
+                <select id="type-filter" class="browser-default">
+                    <option value="" selected>All Types</option>
+                    {% for issue_type in issue_types %}
+                        <option value="{{ issue_type }}">{{ issue_type }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <table id="worklog-table" class="highlight responsive-table">
+            <thead>
+                <tr>
+                    <th>Issue Key</th>
+                    <th>Summary</th>
+                    <th>SP</th>
+                    <th>Author</th>
+                    <th>Date</th>
+                    <th>Time (h)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in worklog_details %}
+                <tr data-author="{{ log['Author'] }}" data-type="{{ log['Type'] }}" data-hours="{{ log['Time Logged (h)'] }}">
+                    <td><a href="https://200software.atlassian.net/browse/{{ log['Issue Key'] }}" target="_blank">{{ log['Issue Key'] }}</a></td>
+                    <td>{{ log['Summary'] }}</td>
+                    <td>{{ log['Story Points'] }}</td>
+                    <td>{{ log['Author'] }}</td>
+                    <td>{{ log['Log Date'] }}</td>
+                    <td>{{ log['Time Logged (h)'] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2>Total Hours</h2>
+        <p id="total-hours"></p>
+
+        <h2>Summary by Issue Type</h2>
+        <ul id="type-summary"></ul>
+
+        <canvas id="issue-type-chart"></canvas>
+        {% endif %}
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const authorFilter = document.getElementById("author-filter");
+            const typeFilter = document.getElementById("type-filter");
+            const table = document.getElementById("worklog-table");
+            const rows = table.querySelectorAll("tbody tr");
+            const totalHoursElement = document.getElementById("total-hours");
+            const typeSummaryElement = document.getElementById("type-summary");
+            const chartCanvas = document.getElementById("issue-type-chart").getContext("2d");
+            let chartInstance;
+
+            function updateTotals() {
+                let totalHours = 0;
+                const typeTotals = {};
+
+                rows.forEach(row => {
+                    if (row.style.display !== "none") {
+                        const hours = parseFloat(row.getAttribute("data-hours")) || 0;
+                        const type = row.getAttribute("data-type");
+
+                        totalHours += hours;
+
+                        if (!typeTotals[type]) {
+                            typeTotals[type] = 0;
+                        }
+                        typeTotals[type] += hours;
+                    }
+                });
+
+                totalHoursElement.textContent = totalHours.toFixed(2);
+
+                typeSummaryElement.innerHTML = "";
+                for (const [type, hours] of Object.entries(typeTotals)) {
+                    const li = document.createElement("li");
+                    li.textContent = `${type}: ${hours.toFixed(2)} hours`;
+                    typeSummaryElement.appendChild(li);
+                }
+
+                updateChart(typeTotals);
+            }
+
+            function updateChart(typeTotals) {
+                const labels = Object.keys(typeTotals);
+                const data = Object.values(typeTotals);
+
+                const colors = labels.map(() => `hsl(${Math.random() * 360}, 50%, 50%)`);
+
+                if (chartInstance) {
+                    chartInstance.destroy();
+                }
+
+                chartInstance = new Chart(chartCanvas, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Time Logged by Issue Type',
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                position: 'top'
+                            }
+                        }
+                    }
+                });
+            }
+
+            function applyFilters() {
+                const selectedAuthor = authorFilter.value;
+                const selectedType = typeFilter.value;
+
+                rows.forEach(row => {
+                    const rowAuthor = row.getAttribute("data-author");
+                    const rowType = row.getAttribute("data-type");
+
+                    if (
+                        (selectedAuthor === "" || rowAuthor === selectedAuthor) &&
+                        (selectedType === "" || rowType === selectedType)
+                    ) {
+                        row.style.display = "";
+                    } else {
+                        row.style.display = "none";
+                    }
+                });
+
+                updateTotals();
+            }
+
+            authorFilter.addEventListener("change", applyFilters);
+            typeFilter.addEventListener("change", applyFilters);
+
+            updateTotals();
+        });
+
+        function showLoading() {
+            document.getElementById("loading-overlay").style.display = "block";
+        }
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const form = document.querySelector("form");
+            form.addEventListener("submit", showLoading);
+        });
+    </script>
+</body>
+</html>

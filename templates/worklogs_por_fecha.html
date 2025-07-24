@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Worklogs por Rango de Fechas</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Copiar estilos relevantes de index.html */
+        #filters-container { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; background-color: #fff; padding: 10px; box-shadow: 0px 4px 6px rgba(0,0,0,0.1); border-radius: 5px; z-index: 1000; }
+        #filters-container select { width: 150px; }
+        #filters-container label { font-size: 12px; font-weight: bold; display: block; margin-bottom: 5px; }
+        #author-filter-container, #type-filter-container { display: flex; flex-direction: column; }
+        #worklog-table tbody tr:nth-child(odd) { background-color: #f9f9f9; }
+        #worklog-table tbody tr:nth-child(even) { background-color: #fff; }
+        #worklog-table tbody tr:hover { background-color: #e6f7ff; }
+        nav { background-color: #fff; box-shadow: 0px 2px 4px rgba(0,0,0,0.1); }
+        .brand-logo img { margin-left: 15px; max-width: 40%; border: none; border-radius: 0; box-shadow: none; }
+        .nav-wrapper .brand-logo { margin-left: 20px; }
+        .nav-wrapper ul { margin-right: 20px; }
+        .nav-wrapper ul li a { color: #333; font-weight: bold; }
+        .author-profile { display: flex; align-items: center; gap: 10px; }
+        .circle-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid #ddd; }
+        .chip img { height: 32px; width: 32px; object-fit: cover; border-radius: 50%; }
+        .type-icon img { width: 24px; height: 24px; vertical-align: middle; margin-right: 5px; }
+        #worklog-table td:last-child, #worklog-table th:last-child { text-align: right; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+            <a href="/" class="brand-logo">
+                <img src="{{ url_for('static', filename='images/logo-encuentra-oscuro.png') }}" alt="Logo">
+            </a>
+            <ul id="nav-mobile" class="right hide-on-med-and-down">
+                <li><a href="/">Horas Sprint</a></li>
+                <li><a href="/worklogs_por_fecha">Por Fecha</a></li>
+            </ul>
+        </div>
+    </nav>
+    <div class="container">
+        <h1>Worklogs por Rango de Fechas</h1>
+        <form method="POST" class="row">
+            <div class="input-field col s6">
+                <label for="start_date" style="top:-20px;">Fecha Inicio</label>
+                <input type="date" name="start_date" id="start_date" required value="{{ start_date }}">
+            </div>
+            <div class="input-field col s6">
+                <label for="end_date" style="top:-20px;">Fecha Fin</label>
+                <input type="date" name="end_date" id="end_date" required value="{{ end_date }}">
+            </div>
+            <div class="col s12">
+                <button type="submit" class="btn waves-effect waves-light">Buscar</button>
+            </div>
+        </form>
+        {% if worklog_details %}
+        <div id="filters-container">
+            <div id="author-filter-container">
+                <label for="author-filter">Filtrar por Autor:</label>
+                <select id="author-filter" class="browser-default">
+                    <option value="" selected>Todos</option>
+                    {% for author in authors %}
+                        <option value="{{ author }}">{{ author }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="type-filter-container">
+                <label for="type-filter">Filtrar por Tipo:</label>
+                <select id="type-filter" class="browser-default">
+                    <option value="" selected>Todos</option>
+                    {% for issue_type in issue_types %}
+                        <option value="{{ issue_type }}">{{ issue_type }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <form action="/export_worklogs_por_fecha" method="POST">
+            <input type="hidden" name="start_date" value="{{ start_date }}">
+            <input type="hidden" name="end_date" value="{{ end_date }}">
+            <button type="submit" class="btn waves-effect waves-light">Exportar a Excel</button>
+        </form>
+        <table id="worklog-table" class="highlight responsive-table">
+            <thead>
+                <tr>
+                    <th>Issue Key</th>
+                    <th>Summary</th>
+                    <th>SP</th>
+                    <th>Author</th>
+                    <th>Date</th>
+                    <th>Time (h)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in worklog_details %}
+                <tr data-author="{{ log['Author'] }}" data-type="{{ log['Type'] }}" data-hours="{{ log['Time Logged (h)'] }}">
+                    <td>
+                        <div class="type-icon">
+                            <img src="{{ url_for('static', filename='icons/' + log['TypeIcon']) }}" alt="{{ log['Type'] }}" title="{{ log['Type'] }}"> <a href="https://200software.atlassian.net/browse/{{ log["Issue Key"] }}" target="_blank"> {{ log["Issue Key"] }}</a>
+                        </div>
+                    </td>
+                    <td>{{ log["Summary"] }}</td>
+                    <td><div class="chip">{{ log["Story Points"] if log["Story Points"] != none else "-" }}</div></td>
+                    <td><div class="chip"><img src="{{ url_for('static', filename='images/' + log['AuthorImage']) }}" alt="Profile">{{ log["Author"] }}</div></td>
+                    <td>{{ log["Log Date"] }}</td>
+                    <td>{{ log["Time Logged (h)"] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="col s12">
+            <h4>Time by Issue Type</h4>
+            <ul id="type-summary"></ul>
+        </div>
+        <div class="col s12">
+            <h4>Total Hours: <span id="total-hours">0</span></h4>
+        </div>
+        <div class="row">
+            <h4>Time Logged by Issue Type</h4>
+            <div style="width: 50%; margin: 0 auto;">
+                <canvas id="issue-type-chart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const authorFilter = document.getElementById("author-filter");
+            const typeFilter = document.getElementById("type-filter");
+            const table = document.getElementById("worklog-table");
+            const rows = table ? table.querySelectorAll("tbody tr") : [];
+            const totalHoursElement = document.getElementById("total-hours");
+            const typeSummaryElement = document.getElementById("type-summary");
+            const chartCanvas = document.getElementById("issue-type-chart") ? document.getElementById("issue-type-chart").getContext("2d") : null;
+            let chartInstance;
+            function updateTotals() {
+                let totalHours = 0;
+                const typeTotals = {};
+                rows.forEach(row => {
+                    if (row.style.display !== "none") {
+                        const hours = parseFloat(row.getAttribute("data-hours")) || 0;
+                        const type = row.getAttribute("data-type");
+                        totalHours += hours;
+                        if (!typeTotals[type]) { typeTotals[type] = 0; }
+                        typeTotals[type] += hours;
+                    }
+                });
+                if (totalHoursElement) totalHoursElement.textContent = totalHours.toFixed(2);
+                if (typeSummaryElement) {
+                    typeSummaryElement.innerHTML = "";
+                    for (const [type, hours] of Object.entries(typeTotals)) {
+                        const li = document.createElement("li");
+                        li.textContent = `${type}: ${hours.toFixed(2)} hours`;
+                        typeSummaryElement.appendChild(li);
+                    }
+                }
+                updateChart(typeTotals);
+            }
+            function updateChart(typeTotals) {
+                if (!chartCanvas) return;
+                const labels = Object.keys(typeTotals);
+                const data = Object.values(typeTotals);
+                const colors = labels.map(() => `hsl(${Math.random() * 360}, 50%, 50%)`);
+                if (chartInstance) { chartInstance.destroy(); }
+                chartInstance = new Chart(chartCanvas, {
+                    type: 'pie',
+                    data: { labels: labels, datasets: [{ label: 'Time Logged by Issue Type', data: data, backgroundColor: colors, borderWidth: 1 }] },
+                    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'top' } } }
+                });
+            }
+            function applyFilters() {
+                const selectedAuthor = authorFilter.value;
+                const selectedType = typeFilter.value;
+                rows.forEach(row => {
+                    const rowAuthor = row.getAttribute("data-author");
+                    const rowType = row.getAttribute("data-type");
+                    if ((selectedAuthor === "" || rowAuthor === selectedAuthor) && (selectedType === "" || rowType === selectedType)) {
+                        row.style.display = "";
+                    } else {
+                        row.style.display = "none";
+                    }
+                });
+                updateTotals();
+            }
+            if (authorFilter) authorFilter.addEventListener("change", applyFilters);
+            if (typeFilter) typeFilter.addEventListener("change", applyFilters);
+            updateTotals();
+        });
+    </script>
+</body>
+</html> 

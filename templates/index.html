@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jira Worklogs Report</title>
+    <!-- Materialize CSS -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css" rel="stylesheet">
+    <!-- Materialize JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js" defer></script>
+    <!-- Chart JS -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        #filters-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            flex-direction: column; /* Organiza los filtros en columna */
+            gap: 10px; /* Espaciado entre los filtros */
+            background-color: #ffffff;
+            padding: 10px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 5px;
+            z-index: 1000;
+        }
+        
+        #filters-container select {
+            width: 150px; /* Ancho de los select */
+        }
+        
+        #filters-container label {
+            font-size: 12px;
+            font-weight: bold;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        #author-filter-container,
+        #type-filter-container {
+            display: flex;
+            flex-direction: column; /* Organiza el label y el select */
+        }
+        #worklog-table tbody tr:nth-child(odd) {
+            background-color: #f9f9f9; /* Color para filas impares */
+        }
+    
+        #worklog-table tbody tr:nth-child(even) {
+            background-color: #ffffff; /* Color para filas pares */
+        }
+    
+        #worklog-table tbody tr:hover {
+            background-color: #e6f7ff; /* Color para la fila bajo el cursor */
+        }
+        nav {
+            background-color: #ffffff; /* Cambia a tu color de fondo preferido */
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1); /* Sombra ligera */
+        }
+
+        .brand-logo img {
+            margin-left: 15px; /* Espaciado desde el borde izquierdo */
+            height: auto;
+            max-width: 40%;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+        nav {
+            background-color: #ffffff; /* Cambia a tu color de fondo preferido */
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.1); /* Sombra ligera */
+        }    
+        .nav-wrapper .brand-logo {
+            margin-left: 20px;
+        }
+    
+        .nav-wrapper ul {
+            margin-right: 20px;
+        }
+    
+        .nav-wrapper ul li a {
+            color: #333;
+            font-weight: bold;
+        }
+        .author-profile {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+    
+        .circle-img {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%; /* Hace la imagen circular */
+            object-fit: cover; /* Ajusta la imagen al contenedor */
+            border: 2px solid #ddd; /* Borde alrededor de la imagen */
+        }
+        .chip img {
+            height: 32px; /* Tamaño de la imagen */
+            width: 32px;  /* Tamaño de la imagen */
+            object-fit: cover; /* Ajusta la imagen para que encaje perfectamente */
+            border-radius: 50%; /* Asegura que sea circular */
+        }
+        .type-icon img {
+            width: 24px; /* Ajusta el tamaño del ícono */
+            height: 24px;
+            vertical-align: middle; /* Centra el ícono verticalmente */
+            margin-right: 5px; /* Espaciado entre el ícono y el texto */
+        }
+        #worklog-table td:last-child, /* Última columna de la tabla */
+        #worklog-table th:last-child { /* Encabezado de la última columna */
+            text-align: right; /* Alineación a la derecha */
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+            <a href="#" class="brand-logo">
+                <img src="{{ url_for('static', filename='images/logo-encuentra-oscuro.png') }}" alt="Logo"">
+            </a>
+            <ul id="nav-mobile" class="right hide-on-med-and-down">
+                <li><a href="{{ url_for('index') }}">Horas Sprint</a></li>
+                <li><a href="{{ url_for('worklogs_por_fecha') }}">Por Fecha</a></li>
+                <!-- Más opciones en el futuro -->
+                <li><a href="#">Otra Opción</a></li>
+            </ul>
+        </div>
+    </nav>
+    <!-- Overlay de carga -->
+    <div id="loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.8); z-index: 9999; text-align: center;">
+        <img src="{{ url_for('static', filename='loading_2.gif') }}" alt="Loading..." style="width: 80%;">
+    </div>
+    <div class="container">
+        <h1>Generate Worklogs Report</h1>
+        <form method="POST" class="row" onsubmit="showLoading()">
+            <div class="input-field col s12">
+                <select name="sprint" id="sprint" required class="browser-default">
+                    <option value="" disabled selected>Select Sprint</option>
+                    {% for sprint in sprints %}
+                        <option value="{{ sprint.id }}" {% if sprint.id == selected_sprint %}selected{% endif %}>
+                            {{ sprint.name }} ({{ sprint.state }})
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        
+            <div class="col s12">
+                <button type="submit" class="btn waves-effect waves-light">Load Data</button>
+            </div>
+        </form>
+
+        {% if worklog_details %}              
+        <!-- Filtro de Author flotante -->
+        <div id="filters-container">
+            <div id="author-filter-container">
+                <label for="author-filter pulse">Filter by Author:</label>
+                <select id="author-filter" class="browser-default">
+                    <option value="" selected>All Authors</option>
+                    {% for author in authors %}
+                        <option value="{{ author }}">{{ author }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div id="type-filter-container">
+                <label for="type-filter">Filter by Issue Type:</label>
+                <select id="type-filter" class="browser-default">
+                    <option value="" selected>All Types</option>
+                    {% for issue_type in issue_types %}
+                        <option value="{{ issue_type }}">{{ issue_type }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <h2>Worklogs</h2>
+        {% if selected_sprint %}
+        <div class="row">
+            <h4>Sprint: {{ sprints | selectattr("id", "equalto", selected_sprint) | map(attribute="name") | first }}</h4>
+            <p>
+                <strong>Start Date:</strong> {{ start_date.strftime("%Y-%m-%d") if start_date else "N/A" }}<br>
+                <strong>End Date:</strong> {{ end_date.strftime("%Y-%m-%d") if end_date else "N/A" }}
+            </p>
+        </div>
+        {% endif %}
+        <form action="/export" method="POST">
+            <input type="hidden" name="sprint" value="{{ selected_sprint }}">
+            <button type="submit" class="btn waves-effect waves-light">Export to Excel</button>
+        </form>
+        <table id="worklog-table" class="highlight responsive-table">
+            <thead>
+                <tr>
+                    <th>Issue Key</th>
+                    <th>Summary</th>
+                    <th>SP</th>
+                    <th>Author</th>
+                    <th>Date</th>
+                    <th>Time (h)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in worklog_details %}
+                <tr data-author="{{ log['Author'] }}" data-type="{{ log['Type'] }}" data-hours="{{ log['Time Logged (h)'] }}">
+                    <td>
+                        <div class="type-icon">
+                            <img src="{{ url_for('static', filename='icons/' + log['TypeIcon']) }}" alt="{{ log['Type'] }}" title="{{ log['Type'] }}"> <a href="https://200software.atlassian.net/browse/{{ log["Issue Key"] }}" target="_blank"> {{ log["Issue Key"] }}</a>
+                        </div>
+                    </td>
+                    <td>{{ log["Summary"] }}</td>
+                    <td>
+                        <div class="chip">
+                            {{ log["Story Points"] if log["Story Points"] != none else "-" }}
+                        </div>
+                    </td>
+                    <td>
+                         <!-- Materialize Chip -->
+                        <div class="chip">
+                            <img src="{{ url_for('static', filename='images/' + log['AuthorImage']) }}" alt="Profile">
+                            {{ log["Author"] }}
+                        </div>
+                    </td>
+                    <td>{{ log["Log Date"] }}</td>
+                    <td>{{ log["Time Logged (h)"] }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="col s12">
+            <h4>Time by Issue Type</h4>
+            <ul id="type-summary">
+                <!-- El contenido se genera dinámicamente -->
+            </ul>
+        </div>
+        <div class="col s12">
+            <h4>Total Hours: <span id="total-hours">0</span></h4>
+        </div>
+        <div class="row">
+            <h4>Time Logged by Issue Type</h4>
+            <div style="width: 50%; margin: 0 auto;">
+                <canvas id="issue-type-chart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const authorFilter = document.getElementById("author-filter");
+            const typeFilter = document.getElementById("type-filter");
+            const table = document.getElementById("worklog-table");
+            const rows = table.querySelectorAll("tbody tr");
+            const totalHoursElement = document.getElementById("total-hours");
+            const typeSummaryElement = document.getElementById("type-summary");
+            const chartCanvas = document.getElementById("issue-type-chart").getContext("2d");
+            let chartInstance;
+        
+            // Función para actualizar totales
+            function updateTotals() {
+                let totalHours = 0;
+                const typeTotals = {};
+        
+                rows.forEach(row => {
+                    if (row.style.display !== "none") { // Solo suma filas visibles
+                        const hours = parseFloat(row.getAttribute("data-hours")) || 0;
+                        const type = row.getAttribute("data-type");
+        
+                        totalHours += hours;
+        
+                        // Sumar horas por tipo de issue
+                        if (!typeTotals[type]) {
+                            typeTotals[type] = 0;
+                        }
+                        typeTotals[type] += hours;
+                    }
+                });
+        
+                // Actualizar el total de horas
+                totalHoursElement.textContent = totalHours.toFixed(2);
+        
+                // Actualizar el resumen por tipo de issue
+                typeSummaryElement.innerHTML = "";
+                for (const [type, hours] of Object.entries(typeTotals)) {
+                    const li = document.createElement("li");
+                    li.textContent = `${type}: ${hours.toFixed(2)} hours`;
+                    typeSummaryElement.appendChild(li);
+                }
+        
+                // Actualizar el gráfico
+                updateChart(typeTotals);
+            }
+        
+            // Función para actualizar el gráfico
+            function updateChart(typeTotals) {
+                const labels = Object.keys(typeTotals);
+                const data = Object.values(typeTotals);
+        
+                const colors = labels.map(() => `hsl(${Math.random() * 360}, 50%, 50%)`); // Colores aleatorios
+        
+                if (chartInstance) {
+                    chartInstance.destroy(); // Destruir gráfico anterior
+                }
+        
+                chartInstance = new Chart(chartCanvas, {
+                    type: 'pie',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Time Logged by Issue Type',
+                            data: data,
+                            backgroundColor: colors,
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true, // Mantiene las proporciones al redimensionar
+                        plugins: {
+                            legend: {
+                                position: 'top'
+                            }
+                        }
+                    }
+                });
+            }
+        
+            // Función para aplicar filtros
+            function applyFilters() {
+                const selectedAuthor = authorFilter.value;
+                const selectedType = typeFilter.value;
+        
+                rows.forEach(row => {
+                    const rowAuthor = row.getAttribute("data-author");
+                    const rowType = row.getAttribute("data-type");
+        
+                    // Mostrar u ocultar la fila según los filtros
+                    if (
+                        (selectedAuthor === "" || rowAuthor === selectedAuthor) &&
+                        (selectedType === "" || rowType === selectedType)
+                    ) {
+                        row.style.display = "";
+                    } else {
+                        row.style.display = "none";
+                    }
+                });
+        
+                // Recalcular los totales después de aplicar los filtros
+                updateTotals();
+            }
+        
+            // Escuchar cambios en ambos filtros
+            authorFilter.addEventListener("change", applyFilters);
+            typeFilter.addEventListener("change", applyFilters);
+        
+            // Calcular los totales iniciales
+            updateTotals();
+        });        
+    </script>    
+    <script>
+        function showLoading() {
+            // Mostrar el overlay de carga
+            document.getElementById("loading-overlay").style.display = "block";
+        }
+    
+        document.addEventListener("DOMContentLoaded", function () {
+            const form = document.querySelector("form");
+    
+            // Ocultar el overlay cuando la página termina de cargarse
+            form.addEventListener("submit", showLoading);
+        });
+    </script>
+</body>
+</html>
