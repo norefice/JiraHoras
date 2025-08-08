@@ -83,12 +83,13 @@ def extract_worklog_details(issues, start_date, end_date):
     icon_folder = "static/icons"  # Ruta a la carpeta de íconos de tipos de tarea
     default_image = "default.jpg"  # Imagen por defecto para autores
 
-    # Mapeo de tipos de tarea a íconos (ahora con Spike)
+    # Mapeo de tipos de tarea a íconos (ahora con Spike y Support)
     task_icons = {
         "Tarea": "task.svg",
         "Error": "bug.svg",
         "Historia": "story.svg",
         "Spike": "spike.svg",
+        "Support": "support.svg",
     }
 
     data = []
