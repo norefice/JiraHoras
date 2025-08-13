@@ -19,12 +19,30 @@ app = Flask(__name__)
 
 # Función para obtener los sprints del proyecto
 def get_sprints(board_id):
-    sprints_url = f"{JIRA_BASE_URL}/rest/agile/1.0/board/{board_id}/sprint"
-    response = requests.get(sprints_url, headers=HEADERS, auth=AUTH)
-    response.raise_for_status()
-    
-    sprints = response.json().get("values", [])
-    return sprints
+    try:
+        sprints_url = f"{JIRA_BASE_URL}/rest/agile/1.0/board/{board_id}/sprint"
+        response = requests.get(sprints_url, headers=HEADERS, auth=AUTH)
+        
+        if response.status_code == 401:
+            print("Error 401: No autorizado. Verifica tu token de API de Jira")
+            return []
+        elif response.status_code == 403:
+            print("Error 403: Prohibido. No tienes permisos para acceder a este tablero")
+            return []
+        elif response.status_code != 200:
+            print(f"Error al obtener sprints: HTTP {response.status_code}")
+            return []
+            
+        response.raise_for_status()
+        sprints = response.json().get("values", [])
+        return sprints
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error de conexión con Jira: {e}")
+        return []
+    except Exception as e:
+        print(f"Error inesperado: {e}")
+        return []
 
 # Recupera todos los registros de tiempo asociados a un issue utilizando paginación.
 def get_all_worklogs(issue_key):    
@@ -49,30 +67,48 @@ def get_issues_with_worklogs(sprint_id):
     """
     Obtiene los issues de un sprint con sus fechas de inicio y fin.
     """
-    # Obtén las fechas de inicio y fin del sprint
-    sprint_url = f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}"
-    sprint_response = requests.get(sprint_url, headers=HEADERS, auth=AUTH)
-    sprint_response.raise_for_status()
-    sprint_data = sprint_response.json()
+    try:
+        # Obtén las fechas de inicio y fin del sprint
+        sprint_url = f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}"
+        sprint_response = requests.get(sprint_url, headers=HEADERS, auth=AUTH)
+        
+        if sprint_response.status_code != 200:
+            print(f"Error al obtener datos del sprint {sprint_id}: HTTP {sprint_response.status_code}")
+            return [], None, None
+            
+        sprint_response.raise_for_status()
+        sprint_data = sprint_response.json()
 
-    start_date = pd.to_datetime(sprint_data["startDate"])
-    end_date = pd.to_datetime(sprint_data["endDate"])
+        start_date = pd.to_datetime(sprint_data["startDate"])
+        end_date = pd.to_datetime(sprint_data["endDate"])
 
-    # Obtén los issues relacionados con el sprint
-    url = f"{JIRA_BASE_URL}/rest/api/3/search"
-    jql_query = f"sprint = {sprint_id} AND timespent IS NOT EMPTY"
-    params = {
-        "jql": jql_query,
-        "fields": "summary,issuetype,timespent,worklog,customfield_10016",
-        "expand": "worklog",
-        "maxResults": 100
-    }
+        # Obtén los issues relacionados con el sprint
+        url = f"{JIRA_BASE_URL}/rest/api/3/search"
+        jql_query = f"sprint = {sprint_id} AND timespent IS NOT EMPTY"
+        params = {
+            "jql": jql_query,
+            "fields": "summary,issuetype,timespent,worklog,customfield_10016",
+            "expand": "worklog",
+            "maxResults": 100
+        }
 
-    response = requests.get(url, headers=HEADERS, auth=AUTH, params=params)
-    response.raise_for_status()
-    issues = response.json().get("issues", [])
+        response = requests.get(url, headers=HEADERS, auth=AUTH, params=params)
+        
+        if response.status_code != 200:
+            print(f"Error al obtener issues del sprint {sprint_id}: HTTP {response.status_code}")
+            return [], start_date, end_date
+            
+        response.raise_for_status()
+        issues = response.json().get("issues", [])
 
-    return issues, start_date, end_date
+        return issues, start_date, end_date
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error de conexión con Jira: {e}")
+        return [], None, None
+    except Exception as e:
+        print(f"Error inesperado: {e}")
+        return [], None, None
 
 # Función para procesar los worklogs y generar un reporte
 def extract_worklog_details(issues, start_date, end_date):
@@ -127,21 +163,106 @@ def extract_worklog_details(issues, start_date, end_date):
 
 def get_issues_with_worklogs_by_date(start_date, end_date):
     """
-    Obtiene los issues con worklogs en un rango de fechas.
+    Obtiene los issues con worklogs en un rango de fechas usando la API oficial de Jira Cloud v3.
     """
-    # JQL para buscar issues con worklogs en el rango de fechas
-    jql_query = f"worklogDate >= '{start_date.strftime('%Y-%m-%d')}' AND worklogDate <= '{end_date.strftime('%Y-%m-%d')}' AND timespent IS NOT EMPTY"
-    url = f"{JIRA_BASE_URL}/rest/api/3/search"
-    params = {
-        "jql": jql_query,
-        "fields": "summary,issuetype,timespent,worklog,customfield_10016",
-        "expand": "worklog",
-        "maxResults": 100
-    }
-    response = requests.get(url, headers=HEADERS, auth=AUTH, params=params)
-    response.raise_for_status()
-    issues = response.json().get("issues", [])
-    return issues
+    try:
+        print("Conectando con Jira Cloud API v3...")
+        
+        # Usar la nueva API de Jira Cloud v3 para búsquedas mejoradas
+        url = f"{JIRA_BASE_URL}/rest/api/3/search/jql"
+        
+        # Consulta JQL simple y compatible - probando sin especificar proyecto
+        jql_query = f"project = TDEV"
+        
+        # Parámetros para la nueva API de búsqueda mejorada - formato simplificado
+        payload = {
+            "jql": jql_query,
+            "maxResults": 100
+        }
+        
+        print(f"URL: {url}")
+        print(f"JQL Query: {jql_query}")
+        
+        # Headers estándar según la documentación
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(url, headers=headers, auth=AUTH, json=payload)
+        
+        print(f"Status Code: {response.status_code}")
+        
+        if response.status_code == 401:
+            print("Error 401: No autorizado. Verifica tu token de API de Jira")
+            return []
+        elif response.status_code == 403:
+            print("Error 403: Prohibido. No tienes permisos para acceder a estos datos")
+            return []
+        elif response.status_code == 410:
+            print("Error 410: La API ha sido removida. Verificando configuración...")
+            print(f"Response: {response.text}")
+            return []
+        elif response.status_code != 200:
+            print(f"Error HTTP {response.status_code}: {response.text}")
+            return []
+            
+        response.raise_for_status()
+        response_data = response.json()
+        print(f"Response data keys: {list(response_data.keys())}")
+        
+        issues = response_data.get("issues", [])
+        if issues:
+            print(f"Primer issue keys: {list(issues[0].keys())}")
+            print(f"Primer issue fields keys: {list(issues[0].get('fields', {}).keys())}")
+        
+        print(f"Consulta exitosa. Encontrados {len(issues)} issues")
+        
+        # Ahora obtener los detalles de cada issue individualmente
+        filtered_issues = []
+        for issue in issues:
+            issue_id = issue["id"]
+            try:
+                # Obtener detalles completos del issue usando la API de issues
+                issue_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_id}"
+                issue_response = requests.get(issue_url, headers=headers, auth=AUTH)
+                
+                if issue_response.status_code == 200:
+                    issue_details = issue_response.json()
+                    issue_key = issue_details["key"]
+                    
+                    # Obtener worklogs para este issue específico
+                    worklog_url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_key}/worklog"
+                    worklog_response = requests.get(worklog_url, headers=headers, auth=AUTH)
+                    
+                    if worklog_response.status_code == 200:
+                        worklogs = worklog_response.json().get("worklogs", [])
+                        has_worklogs_in_range = False
+                        
+                        for log in worklogs:
+                            log_date = pd.to_datetime(log["started"]).date()
+                            if start_date <= log_date <= end_date:
+                                has_worklogs_in_range = True
+                                break
+                        
+                        if has_worklogs_in_range:
+                            # Agregar los worklogs al issue
+                            issue_details["fields"]["worklog"] = {"worklogs": worklogs}
+                            filtered_issues.append(issue_details)
+                            
+            except Exception as e:
+                print(f"Error al obtener detalles para issue ID {issue_id}: {e}")
+                continue
+        
+        print(f"Encontrados {len(filtered_issues)} issues con worklogs en el rango de fechas")
+        return filtered_issues
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error de conexión con Jira: {e}")
+        return []
+    except Exception as e:
+        print(f"Error inesperado: {e}")
+        return []
 
 # Ruta principal
 @app.route("/", methods=["GET", "POST"])
